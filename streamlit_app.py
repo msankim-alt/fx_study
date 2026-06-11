@@ -5,7 +5,11 @@ import os, sys, sqlite3
 import streamlit as st
 import requests
 import plotly.graph_objects as go
-from datetime import datetime, date
+from datetime import datetime, date, timezone, timedelta
+
+KST = timezone(timedelta(hours=9))
+def now_kst():
+    return datetime.now(KST)
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -106,7 +110,7 @@ div[data-testid="stHorizontalBlock"] .stRadio > div {
 """, unsafe_allow_html=True)
 
 # ── 고정 헤더 ─────────────────────────────────────────────────────────────────
-now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+now_str = now_kst().strftime("%Y-%m-%d %H:%M:%S")
 st.markdown(f"""
 <header style="position:fixed;top:0;left:0;right:0;z-index:999;
   background:#1e3a8a;color:#fff;padding:0 32px;height:56px;
@@ -333,7 +337,7 @@ with tab1:
             st.warning("DXY 수집 실패")
 
     # 당일 이력 업데이트
-    rec = {"ts": datetime.now().strftime("%H:%M"),
+    rec = {"ts": now_kst().strftime("%H:%M"),
            "USD": usd.get("current"), "EUR": eur.get("current")}
     h = st.session_state.rate_history
     if not h or h[-1].get("USD") != rec["USD"] or h[-1].get("EUR") != rec["EUR"]:
@@ -462,9 +466,9 @@ with tab2:
                     init_news_db()
                     summary = run_news_pipeline()
                     st.session_state["latest_summary"] = {
-                        "hour_label": datetime.now().strftime("%Y년 %m월 %d일 %H시"),
+                        "hour_label": now_kst().strftime("%Y년 %m월 %d일 %H시"),
                         "summary": summary,
-                        "created_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                        "created_at": now_kst().strftime("%Y-%m-%d %H:%M"),
                     }
                     st.success("✅ 수집 완료!")
                 except Exception as e:

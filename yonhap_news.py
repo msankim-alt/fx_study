@@ -9,7 +9,11 @@ import json
 import os
 import re
 import time
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
+
+KST = timezone(timedelta(hours=9))
+def now_kst():
+    return datetime.now(KST)
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 from groq import Groq
@@ -176,7 +180,7 @@ def save_articles(articles: list) -> list:
                    (article_id, title, link, published, source_feed, body, collected_at)
                    VALUES (?,?,?,?,?,?,?)""",
                 (a["article_id"], a["title"], a["link"], a["published"],
-                 a["source_feed"], a.get("body", ""), datetime.now().isoformat())
+                 a["source_feed"], a.get("body", ""), now_kst().isoformat())
             )
             if con.execute("SELECT changes()").fetchone()[0]:
                 saved.append(a)
@@ -189,7 +193,7 @@ def save_articles(articles: list) -> list:
 
 def get_articles_for_hour(hour_label: str = None) -> list:
     if hour_label is None:
-        hour_label = datetime.now().strftime("%Y-%m-%d %H")
+        hour_label = now_kst().strftime("%Y-%m-%d %H")
     con = sqlite3.connect(DB_PATH)
     rows = con.execute(
         "SELECT article_id, title, link, published, body FROM yonhap_articles "
@@ -229,7 +233,7 @@ def summarize_with_claude(articles: list) -> str:
         body = a.get("body", "").strip() or "(본문 없음)"
         articles_text += f"\n[기사 {i}] {a['title']}\n출처: {a['link']}\n{body[:800]}\n"
 
-    hour_label = datetime.now().strftime("%Y년 %m월 %d일 %H시")
+    hour_label = now_kst().strftime("%Y년 %m월 %d일 %H시")
 
     prompt = (
         f"당신은 외환·금융시장 전문 애널리스트입니다.\n"
@@ -265,7 +269,7 @@ def save_summary(hour_label: str, article_ids: list, summary: str):
              article_ids=excluded.article_ids,
              summary=excluded.summary,
              created_at=excluded.created_at""",
-        (hour_label, json.dumps(article_ids), summary, datetime.now().isoformat())
+        (hour_label, json.dumps(article_ids), summary, now_kst().isoformat())
     )
     con.commit()
     con.close()
@@ -274,8 +278,8 @@ def save_summary(hour_label: str, article_ids: list, summary: str):
 # ── 메인 파이프라인 ────────────────────────────────────────────────────
 
 def run_news_pipeline():
-    hour_label = datetime.now().strftime("%Y-%m-%d %H")
-    _safe_print(f"[{datetime.now().strftime('%H:%M:%S')}] 연합뉴스 수집 시작 ({hour_label})")
+    hour_label = now_kst().strftime("%Y-%m-%d %H")
+    _safe_print(f"[{now_kst().strftime('%H:%M:%S')}] 연합뉴스 수집 시작 ({hour_label})")
 
     articles = fetch_yonhap_rss()
     _safe_print(f"[INFO] 환율 관련 기사 {len(articles)}건 발견")
@@ -302,7 +306,7 @@ def run_news_pipeline():
     # 기존 기사도 collected_at을 현재 시각으로 갱신하여 현재 시간대 조회에 포함
     if existing_articles:
         con = sqlite3.connect(DB_PATH)
-        now_iso = datetime.now().isoformat()
+        now_iso = now_kst().isoformat()
         for a in existing_articles:
             con.execute(
                 "UPDATE yonhap_articles SET collected_at=? WHERE article_id=?",
