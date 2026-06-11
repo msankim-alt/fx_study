@@ -1,0 +1,1335 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>환율 변동 모니터 | FX Monitor</title>
+  <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <style>
+    :root {
+      --blue: #1d4ed8; --blue-light: #dbeafe; --blue-dark: #1e3a8a;
+      --red: #dc2626; --red-light: #fee2e2;
+      --green: #16a34a; --green-light: #dcfce7;
+      --gray: #64748b; --gray-light: #f1f5f9; --gray-bg: #f8fafc;
+      --white: #ffffff; --text: #1e293b; --border: #e2e8f0;
+      --shadow: 0 1px 4px rgba(0,0,0,.08);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Noto Sans KR', 'Apple SD Gothic Neo', -apple-system, sans-serif;
+      background: var(--gray-bg); color: var(--text); min-height: 100vh;
+    }
+
+    /* ── Header ── */
+    header {
+      background: var(--blue-dark); color: #fff;
+      padding: 0 32px; height: 56px;
+      display: flex; align-items: center; justify-content: space-between;
+      position: sticky; top: 0; z-index: 100;
+      box-shadow: 0 2px 8px rgba(0,0,0,.2);
+    }
+    header h1 { font-size: 18px; font-weight: 700; letter-spacing: -.3px; }
+    header h1 span { opacity: .6; font-weight: 400; font-size: 13px; margin-left: 10px; }
+    .header-right { display: flex; align-items: center; gap: 16px; }
+    #status-badge {
+      display: flex; align-items: center; gap: 6px;
+      font-size: 12px; opacity: .85;
+    }
+    #status-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: #4ade80; animation: pulse 2s infinite;
+    }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+    #last-updated { font-size: 12px; opacity: .6; }
+    #refresh-btn {
+      background: rgba(255,255,255,.15); border: 1px solid rgba(255,255,255,.3);
+      color: #fff; border-radius: 6px; padding: 5px 12px;
+      font-size: 12px; cursor: pointer; transition: background .2s;
+    }
+    #refresh-btn:hover { background: rgba(255,255,255,.25); }
+
+    /* ── Layout ── */
+    .page { max-width: 1100px; margin: 0 auto; padding: 28px 24px; }
+
+    /* ── Alert Banner ── */
+    #alert-banner {
+      display: none; margin-bottom: 20px;
+      background: #fef3c7; border: 1px solid #f59e0b; border-radius: 10px;
+      padding: 12px 18px; font-size: 14px; color: #92400e;
+      align-items: center; gap: 10px;
+    }
+    #alert-banner.show { display: flex; }
+    #alert-banner strong { font-weight: 700; }
+
+    /* ── Rate Cards ── */
+    .rate-grid {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px;
+      margin-bottom: 24px;
+    }
+    @media (max-width: 720px) { .rate-grid { grid-template-columns: 1fr; } }
+
+    .rate-card {
+      background: var(--white); border-radius: 14px; padding: 24px 20px;
+      text-align: center; box-shadow: var(--shadow);
+      border-top: 4px solid var(--blue);
+      transition: transform .15s, box-shadow .15s;
+      position: relative; overflow: hidden;
+    }
+    .rate-card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,.12); }
+    .rate-card.up   { border-top-color: var(--red); }
+    .rate-card.down { border-top-color: var(--blue); }
+
+    .rate-pair { font-size: 11px; color: var(--gray); text-transform: uppercase;
+                 letter-spacing: 1px; font-weight: 600; }
+    .rate-flag { font-size: 20px; margin: 8px 0 4px; }
+    .rate-value { font-size: 32px; font-weight: 800; letter-spacing: -1px; margin: 4px 0; }
+    .rate-change {
+      display: inline-flex; align-items: center; gap: 4px;
+      font-size: 14px; font-weight: 700; padding: 3px 10px;
+      border-radius: 20px; margin-top: 4px;
+    }
+    .rate-change.up   { background: var(--red-light);   color: var(--red); }
+    .rate-change.down { background: var(--blue-light);  color: var(--blue); }
+    .rate-change.flat { background: var(--gray-light);  color: var(--gray); }
+    .rate-amount {
+      font-size: 13px; font-weight: 700; padding: 3px 8px;
+      border-radius: 20px;
+    }
+    .rate-amount.up   { background: var(--red-light);  color: var(--red); }
+    .rate-amount.down { background: var(--blue-light); color: var(--blue); }
+    .rate-amount.flat { display: none; }
+    .rate-prev { font-size: 11px; color: var(--gray); margin-top: 8px; }
+    .rate-high-low {
+      display: flex; justify-content: space-around;
+      margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border);
+      font-size: 11px; color: var(--gray);
+    }
+    .rate-high-low span strong { font-weight: 600; color: var(--text); }
+
+    /* ── Threshold Banner ── */
+    .threshold-bar {
+      background: var(--white); border-radius: 10px; padding: 12px 20px;
+      margin-bottom: 20px; box-shadow: var(--shadow);
+      display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+    }
+    .threshold-bar label { font-size: 13px; color: var(--gray); white-space: nowrap; }
+    .threshold-bar input[type=range] { flex: 1; min-width: 120px; accent-color: var(--blue); }
+    #threshold-val { font-size: 13px; font-weight: 700; color: var(--blue); min-width: 36px; }
+    .alert-list { font-size: 12px; color: var(--red); font-weight: 600; }
+
+    /* ── Section Cards ── */
+    .section-card {
+      background: var(--white); border-radius: 14px; padding: 24px;
+      margin-bottom: 20px; box-shadow: var(--shadow);
+    }
+    .section-card h2 {
+      font-size: 15px; font-weight: 700; margin-bottom: 18px;
+      color: var(--text); border-left: 4px solid var(--blue);
+      padding-left: 10px; display: flex; align-items: center; gap: 8px;
+    }
+    .section-card h2 .subtitle {
+      font-size: 11px; font-weight: 400; color: var(--gray); margin-left: auto;
+    }
+
+    /* ── Chart Tabs ── */
+    .chart-tabs { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+    .chart-tab {
+      padding: 5px 14px; border-radius: 20px; font-size: 12px; font-weight: 600;
+      cursor: pointer; border: 1px solid var(--border); background: var(--gray-light);
+      color: var(--gray); transition: all .15s;
+    }
+    .chart-tab.active { background: var(--blue); color: #fff; border-color: var(--blue); }
+
+    /* ── Stats Table ── */
+    .stats-grid {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;
+      margin-bottom: 20px;
+    }
+    @media (max-width: 640px) { .stats-grid { grid-template-columns: 1fr; } }
+
+    .stat-box {
+      background: var(--gray-light); border-radius: 10px; padding: 14px 16px;
+    }
+    .stat-box .stat-label { font-size: 11px; color: var(--gray); margin-bottom: 4px; }
+    .stat-box .stat-val { font-size: 18px; font-weight: 700; }
+    .stat-box .stat-cur { font-size: 11px; color: var(--gray); }
+
+    /* ── History Table ── */
+    .history-table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    thead tr { background: var(--gray-light); }
+    th { padding: 10px 14px; text-align: right; font-weight: 600;
+         font-size: 12px; color: var(--gray); white-space: nowrap; }
+    th:first-child { text-align: left; }
+    td { padding: 9px 14px; text-align: right; border-bottom: 1px solid var(--border);
+         font-variant-numeric: tabular-nums; }
+    td:first-child { text-align: left; color: var(--gray); font-size: 12px; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: var(--gray-light); }
+    .td-up   { color: var(--red);  font-weight: 600; }
+    .td-down { color: var(--blue); font-weight: 600; }
+
+    /* ── Info Grid ── */
+    .info-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+    @media (max-width: 640px) { .info-grid { grid-template-columns: 1fr; } }
+    .info-item { background: var(--gray-light); border-radius: 8px; padding: 14px 16px; }
+    .info-item .info-label { font-size: 11px; color: var(--gray); margin-bottom: 4px; }
+    .info-item .info-val { font-size: 14px; font-weight: 600; }
+
+    /* ── Page Tabs ── */
+    .page-tabs {
+      display: flex; gap: 0; margin-bottom: 24px;
+      border-bottom: 2px solid var(--border);
+    }
+    .page-tab {
+      padding: 10px 24px; font-size: 14px; font-weight: 600;
+      cursor: pointer; color: var(--gray); border-bottom: 3px solid transparent;
+      margin-bottom: -2px; transition: all .15s; white-space: nowrap;
+    }
+    .page-tab.active { color: var(--blue); border-bottom-color: var(--blue); }
+    .page-tab:hover:not(.active) { color: var(--text); }
+
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    /* ── News Summary ── */
+    .news-summary-card {
+      background: var(--white); border-radius: 14px; padding: 0;
+      margin-bottom: 16px; box-shadow: var(--shadow); overflow: hidden;
+    }
+    .news-summary-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 14px 20px; background: var(--blue-dark); color: #fff;
+      cursor: pointer;
+    }
+    .news-summary-header .hour-badge {
+      font-size: 13px; font-weight: 700; display: flex; align-items: center; gap: 8px;
+    }
+    .news-summary-header .article-count {
+      font-size: 11px; background: rgba(255,255,255,.2);
+      padding: 2px 8px; border-radius: 10px;
+    }
+    .news-summary-header .toggle-icon { font-size: 12px; opacity: .7; transition: transform .2s; }
+    .news-summary-header.open .toggle-icon { transform: rotate(180deg); }
+    .news-summary-body {
+      padding: 20px 28px; display: none;
+      border-top: 1px solid var(--border);
+    }
+    .news-summary-body.open { display: block; }
+
+    /* ── Markdown 렌더링 스타일 ── */
+    .md-body { font-size: 14px; line-height: 1.85; color: #374151; }
+    .md-body h2 {
+      font-size: 16px; font-weight: 700; color: var(--text);
+      margin: 20px 0 10px; padding-bottom: 6px;
+      border-bottom: 2px solid var(--blue-light);
+    }
+    .md-body h2:first-child { margin-top: 0; }
+    .md-body h3 {
+      font-size: 14px; font-weight: 700; color: var(--blue-dark);
+      margin: 16px 0 8px;
+    }
+    .md-body h4 {
+      font-size: 13px; font-weight: 700; color: var(--text);
+      margin: 12px 0 6px;
+    }
+    .md-body p { margin: 6px 0 10px; }
+    .md-body ul, .md-body ol {
+      padding-left: 20px; margin: 6px 0 12px;
+    }
+    .md-body li { margin: 4px 0; }
+    .md-body strong { font-weight: 700; color: var(--text); }
+    .md-body em { font-style: italic; color: var(--gray); }
+    .md-body hr {
+      border: none; border-top: 1px solid var(--border);
+      margin: 16px 0;
+    }
+    .md-body blockquote {
+      border-left: 4px solid var(--blue-light);
+      margin: 10px 0; padding: 8px 16px;
+      background: #f8fafc; color: var(--gray);
+      border-radius: 0 6px 6px 0;
+    }
+    .md-body code {
+      background: var(--gray-light); padding: 1px 6px;
+      border-radius: 4px; font-size: 12px; font-family: monospace;
+    }
+    .md-body table {
+      width: 100%; border-collapse: collapse;
+      margin: 12px 0; font-size: 13px;
+    }
+    .md-body th {
+      background: var(--gray-light); padding: 8px 12px;
+      text-align: left; font-weight: 600; border: 1px solid var(--border);
+    }
+    .md-body td {
+      padding: 7px 12px; border: 1px solid var(--border);
+    }
+    .md-body tr:nth-child(even) td { background: #fafafa; }
+
+    .news-articles-list { list-style: none; }
+    .news-articles-list li {
+      padding: 9px 0; border-bottom: 1px solid var(--border); font-size: 13px;
+      display: flex; align-items: flex-start; gap: 8px;
+    }
+    .news-articles-list li:last-child { border-bottom: none; }
+    .news-articles-list a { color: var(--blue); text-decoration: none; flex: 1; }
+    .news-articles-list a:hover { text-decoration: underline; }
+    .news-articles-list .feed-tag {
+      font-size: 10px; background: var(--blue-light); color: var(--blue);
+      padding: 2px 6px; border-radius: 4px; white-space: nowrap; margin-top: 2px;
+    }
+    .news-articles-list .pub-time { font-size: 11px; color: var(--gray); white-space: nowrap; }
+
+    .collect-btn {
+      background: var(--blue); color: #fff; border: none;
+      padding: 10px 20px; border-radius: 8px; font-size: 13px;
+      font-weight: 600; cursor: pointer; transition: background .15s;
+    }
+    .collect-btn:hover { background: var(--blue-dark); }
+    .collect-btn:disabled { background: var(--gray); cursor: not-allowed; }
+
+    .news-meta-bar {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 16px; flex-wrap: wrap; gap: 10px;
+    }
+    .news-meta-bar .meta-info { font-size: 13px; color: var(--gray); }
+
+    .empty-state {
+      text-align: center; padding: 48px 24px; color: var(--gray);
+    }
+    .empty-state .empty-icon { font-size: 40px; margin-bottom: 12px; }
+    .empty-state p { font-size: 14px; }
+    .empty-state code {
+      background: var(--gray-light); padding: 2px 8px; border-radius: 4px;
+      font-size: 13px; color: var(--text);
+    }
+
+    /* ── Footer ── */
+    footer {
+      text-align: center; font-size: 12px; color: var(--gray);
+      padding: 24px; border-top: 1px solid var(--border); margin-top: 8px;
+    }
+    footer a { color: var(--blue); text-decoration: none; }
+
+    /* ── Loading ── */
+    #loading-overlay {
+      position: fixed; inset: 0; background: rgba(248,250,252,.9);
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      z-index: 200; gap: 16px;
+    }
+    .spinner {
+      width: 40px; height: 40px; border: 4px solid var(--border);
+      border-top-color: var(--blue); border-radius: 50%;
+      animation: spin .8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    #loading-overlay p { font-size: 14px; color: var(--gray); }
+  </style>
+</head>
+<body>
+
+<div id="loading-overlay">
+  <div class="spinner"></div>
+  <p>환율 데이터 불러오는 중...</p>
+</div>
+
+<header>
+  <h1>📊 FX Monitor <span>환율 변동 모니터</span></h1>
+  <div class="header-right">
+    <div id="status-badge">
+      <div id="status-dot"></div>
+      <span>실시간</span>
+    </div>
+    <span id="last-updated">—</span>
+    <button id="refresh-btn" onclick="refresh()">↻ 새로고침</button>
+  </div>
+</header>
+
+<div class="page">
+
+  <!-- Page Tabs -->
+  <div class="page-tabs">
+    <div class="page-tab active" onclick="switchTab('rates', this)">📊 환율 현황</div>
+    <div class="page-tab" onclick="switchTab('news', this)">📰 연합뉴스 요약</div>
+    <div class="page-tab" onclick="switchTab('articles', this)">📋 수집 기사</div>
+    <div class="page-tab" onclick="switchTab('settings', this)">⚙️ 설정</div>
+  </div>
+
+  <!-- ══ TAB: 환율 현황 ══ -->
+  <div id="tab-rates" class="tab-panel active">
+
+  <!-- Alert Banner -->
+  <div id="alert-banner">
+    <span>⚠️</span>
+    <div id="alert-text"></div>
+  </div>
+
+  <!-- Rate Cards -->
+  <div class="rate-grid" id="rate-cards">
+    <div class="rate-card" id="card-USD">
+      <div class="rate-pair">USD / KRW</div>
+      <div class="rate-flag">🇺🇸</div>
+      <div class="rate-value" id="val-USD">—</div>
+      <div style="display:flex;align-items:center;justify-content:center;gap:6px;margin-top:4px">
+        <div class="rate-change flat" id="chg-USD">0.000%</div>
+        <div class="rate-amount flat" id="amt-USD"></div>
+      </div>
+      <div class="rate-prev" id="prev-USD"></div>
+      <div class="rate-high-low">
+        <span>고가 <strong id="high-USD">—</strong></span>
+        <span>저가 <strong id="low-USD">—</strong></span>
+      </div>
+    </div>
+    <div class="rate-card" id="card-EUR">
+      <div class="rate-pair">EUR / KRW</div>
+      <div class="rate-flag">🇪🇺</div>
+      <div class="rate-value" id="val-EUR">—</div>
+      <div style="display:flex;align-items:center;justify-content:center;gap:6px;margin-top:4px">
+        <div class="rate-change flat" id="chg-EUR">0.000%</div>
+        <div class="rate-amount flat" id="amt-EUR"></div>
+      </div>
+      <div class="rate-prev" id="prev-EUR"></div>
+      <div class="rate-high-low">
+        <span>고가 <strong id="high-EUR">—</strong></span>
+        <span>저가 <strong id="low-EUR">—</strong></span>
+      </div>
+    </div>
+    <div class="rate-card" id="card-DXY" style="border-top-color:#7c3aed">
+      <div class="rate-pair" style="color:#7c3aed">달러 인덱스 (DXY)</div>
+      <div class="rate-flag">💵</div>
+      <div class="rate-value" id="val-DXY">—</div>
+      <div style="display:flex;align-items:center;justify-content:center;gap:6px;margin-top:4px">
+        <div class="rate-change flat" id="chg-DXY">0.000%</div>
+        <div class="rate-amount flat" id="amt-DXY"></div>
+      </div>
+      <div class="rate-prev" id="prev-DXY"></div>
+      <div class="rate-high-low">
+        <span>고가 <strong id="high-DXY">—</strong></span>
+        <span>저가 <strong id="low-DXY">—</strong></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Threshold Control -->
+  <div class="threshold-bar">
+    <label>변동 임계값:</label>
+    <input type="range" id="threshold" min="0.1" max="2.0" step="0.1" value="0.5"
+           oninput="updateThreshold(this.value)">
+    <span id="threshold-val">±0.5%</span>
+    <span class="alert-list" id="alert-list"></span>
+  </div>
+
+  <!-- Statistics -->
+  <div class="stats-grid" id="stats-grid">
+    <div class="stat-box">
+      <div class="stat-label">USD/KRW 당일 변동폭</div>
+      <div class="stat-val" id="stat-usd-range">—</div>
+      <div class="stat-cur">원</div>
+    </div>
+    <div class="stat-box">
+      <div class="stat-label">EUR/KRW 당일 변동폭</div>
+      <div class="stat-val" id="stat-eur-range">—</div>
+      <div class="stat-cur">원</div>
+    </div>
+    <div class="stat-box">
+      <div class="stat-label">수집 시간</div>
+      <div class="stat-val" style="font-size:15px">08:00 ~ 17:00</div>
+      <div class="stat-cur">5분 간격</div>
+    </div>
+  </div>
+
+  <!-- Chart -->
+  <div class="section-card">
+    <h2>
+      📈 환율 추이 차트
+      <span class="subtitle">localStorage 저장 이력 기반</span>
+    </h2>
+    <div class="chart-tabs">
+      <div class="chart-tab active" onclick="setChartMode('all',this)">전체</div>
+      <div class="chart-tab" onclick="setChartMode('USD',this)">USD/KRW</div>
+      <div class="chart-tab" onclick="setChartMode('EUR',this)">EUR/KRW</div>
+    </div>
+    <div id="chart" style="height:320px"></div>
+  </div>
+
+  <!-- 3개월 히스토리 차트 -->
+  <div class="section-card">
+    <h2>
+      📅 3개월 일별 최종환율 추이
+      <span class="subtitle" id="history-range-label">로딩 중...</span>
+    </h2>
+    <div class="chart-tabs">
+      <div class="chart-tab active" onclick="setHistoryMode('all', this)">USD + EUR</div>
+      <div class="chart-tab" onclick="setHistoryMode('USD', this)">USD/KRW</div>
+      <div class="chart-tab" onclick="setHistoryMode('EUR', this)">EUR/KRW</div>
+    </div>
+    <div id="history-chart" style="height:320px"></div>
+
+    <!-- 3개월 통계 -->
+    <div id="history-stats" style="display:none;margin-top:20px">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+
+        <!-- USD 통계 -->
+        <div style="background:var(--blue-light);border-radius:10px;padding:16px 18px">
+          <div style="font-size:12px;font-weight:700;color:var(--blue);margin-bottom:10px;
+                      letter-spacing:.5px">🇺🇸 USD / KRW  3개월 통계</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
+            <div style="background:#fff;border-radius:8px;padding:10px 12px">
+              <div style="font-size:10px;color:var(--gray);margin-bottom:3px">최고가</div>
+              <div style="font-size:16px;font-weight:800;color:var(--red)" id="usd-high-val">—</div>
+              <div style="font-size:11px;color:var(--gray);margin-top:2px" id="usd-high-date">—</div>
+            </div>
+            <div style="background:#fff;border-radius:8px;padding:10px 12px">
+              <div style="font-size:10px;color:var(--gray);margin-bottom:3px">최저가</div>
+              <div style="font-size:16px;font-weight:800;color:var(--blue)" id="usd-low-val">—</div>
+              <div style="font-size:11px;color:var(--gray);margin-top:2px" id="usd-low-date">—</div>
+            </div>
+          </div>
+          <div style="background:#fff;border-radius:8px;padding:10px 12px;
+                      display:flex;align-items:center;justify-content:space-between">
+            <div style="font-size:10px;color:var(--gray)">누계 평균</div>
+            <div style="font-size:17px;font-weight:800;color:var(--text)" id="usd-avg-val">—</div>
+          </div>
+        </div>
+
+        <!-- EUR 통계 -->
+        <div style="background:var(--green-light);border-radius:10px;padding:16px 18px">
+          <div style="font-size:12px;font-weight:700;color:var(--green);margin-bottom:10px;
+                      letter-spacing:.5px">🇪🇺 EUR / KRW  3개월 통계</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
+            <div style="background:#fff;border-radius:8px;padding:10px 12px">
+              <div style="font-size:10px;color:var(--gray);margin-bottom:3px">최고가</div>
+              <div style="font-size:16px;font-weight:800;color:var(--red)" id="eur-high-val">—</div>
+              <div style="font-size:11px;color:var(--gray);margin-top:2px" id="eur-high-date">—</div>
+            </div>
+            <div style="background:#fff;border-radius:8px;padding:10px 12px">
+              <div style="font-size:10px;color:var(--gray);margin-bottom:3px">최저가</div>
+              <div style="font-size:16px;font-weight:800;color:var(--blue)" id="eur-low-val">—</div>
+              <div style="font-size:11px;color:var(--gray);margin-top:2px" id="eur-low-date">—</div>
+            </div>
+          </div>
+          <div style="background:#fff;border-radius:8px;padding:10px 12px;
+                      display:flex;align-items:center;justify-content:space-between">
+            <div style="font-size:10px;color:var(--gray)">누계 평균</div>
+            <div style="font-size:17px;font-weight:800;color:var(--text)" id="eur-avg-val">—</div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- History Table -->
+  <div class="section-card">
+    <h2>
+      📋 수집 이력
+      <span class="subtitle">최근 50건 | 새로고침마다 자동 저장</span>
+    </h2>
+    <div class="history-table-wrap">
+      <table id="history-table">
+        <thead>
+          <tr>
+            <th style="text-align:left">시각</th>
+            <th>USD/KRW</th>
+            <th>USD 변동</th>
+            <th>EUR/KRW</th>
+            <th>EUR 변동</th>
+          </tr>
+        </thead>
+        <tbody id="history-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Info -->
+  <div class="section-card">
+    <h2>ℹ️ 시스템 정보</h2>
+    <div class="info-grid">
+      <div class="info-item">
+        <div class="info-label">데이터 소스</div>
+        <div class="info-val">Open Exchange Rates (open.er-api.com)</div>
+      </div>
+      <div class="info-item">
+        <div class="info-label">자동 갱신 주기</div>
+        <div class="info-val">1분 (60초)</div>
+      </div>
+      <div class="info-item">
+        <div class="info-label">대상 통화</div>
+        <div class="info-val">USD/KRW · EUR/KRW</div>
+      </div>
+      <div class="info-item">
+        <div class="info-label">이력 저장 방식</div>
+        <div class="info-val">브라우저 localStorage (최근 50건)</div>
+      </div>
+    </div>
+  </div>
+
+  </div><!-- /tab-rates -->
+
+  <!-- ══ TAB: 연합뉴스 요약 ══ -->
+  <div id="tab-news" class="tab-panel">
+    <div class="news-meta-bar">
+      <div class="meta-info">
+        매시 정각 연합뉴스 경제·금융 섹션에서 환율 관련 기사를 수집하여 Claude AI로 요약합니다.
+      </div>
+      <button class="collect-btn" id="collect-btn" onclick="triggerCollect()">
+        ↻ 지금 수집
+      </button>
+    </div>
+
+    <div id="summaries-container">
+      <div class="empty-state">
+        <div class="empty-icon">📭</div>
+        <p>아직 수집된 요약이 없습니다.</p>
+        <p style="margin-top:8px">
+          <code>python news_scheduler.py</code> 를 실행하거나
+          위 <strong>"지금 수집"</strong> 버튼을 눌러주세요.
+        </p>
+        <p style="margin-top:8px;font-size:12px;color:#94a3b8">
+          * "지금 수집" 버튼은 <code>python app.py</code> 서버 실행 시 동작합니다.
+        </p>
+      </div>
+    </div>
+  </div><!-- /tab-news -->
+
+  <!-- ══ TAB: 수집 기사 ══ -->
+  <div id="tab-articles" class="tab-panel">
+    <div class="section-card">
+      <h2>
+        📋 연합뉴스 수집 기사
+        <span class="subtitle" id="articles-count-label">최근 50건</span>
+      </h2>
+      <div id="articles-container">
+        <div class="empty-state">
+          <div class="empty-icon">📭</div>
+          <p>수집된 기사가 없습니다. <code>python news_scheduler.py</code> 를 실행해주세요.</p>
+        </div>
+      </div>
+    </div>
+  </div><!-- /tab-articles -->
+
+  <!-- ══ TAB: 설정 ══ -->
+  <div id="tab-settings" class="tab-panel">
+    <div class="section-card">
+      <h2>⚙️ API 키 설정</h2>
+
+      <div style="margin-bottom:28px">
+        <div style="font-size:13px;color:var(--gray);margin-bottom:16px;line-height:1.7">
+          Groq API 키를 입력하면 <strong>.env 파일에 자동 저장</strong>되며, 연합뉴스 기사 요약에 사용됩니다.<br>
+          키는 서버(<code>app.py</code>)를 통해 저장되므로 서버가 실행 중이어야 합니다.
+        </div>
+
+        <label style="display:block;font-size:13px;font-weight:600;margin-bottom:6px">
+          Groq API Key
+        </label>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <input
+            id="apikey-input"
+            type="password"
+            placeholder="gsk_..."
+            style="flex:1;min-width:280px;padding:10px 14px;border:1.5px solid var(--border);
+                   border-radius:8px;font-size:14px;font-family:monospace;outline:none;
+                   transition:border-color .2s"
+            onfocus="this.style.borderColor='var(--blue)'"
+            onblur="this.style.borderColor='var(--border)'"
+            oninput="document.getElementById('apikey-show-btn').textContent='👁'"
+          >
+          <button id="apikey-show-btn"
+            onclick="toggleKeyVisibility()"
+            title="키 표시/숨기기"
+            style="padding:10px 14px;border:1.5px solid var(--border);border-radius:8px;
+                   background:var(--gray-light);cursor:pointer;font-size:16px">👁</button>
+          <button
+            onclick="saveApiKey()"
+            style="padding:10px 20px;background:var(--blue);color:#fff;border:none;
+                   border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;
+                   transition:background .15s;white-space:nowrap"
+            onmouseover="this.style.background='var(--blue-dark)'"
+            onmouseout="this.style.background='var(--blue)'">
+            💾 저장
+          </button>
+        </div>
+        <div id="apikey-status" style="margin-top:10px;font-size:13px;min-height:20px"></div>
+      </div>
+
+      <hr style="border:none;border-top:1px solid var(--border);margin-bottom:24px">
+
+      <h2 style="margin-bottom:16px">🔑 현재 키 상태</h2>
+      <div id="apikey-current" style="font-size:13px;color:var(--gray)">
+        서버에 연결하여 확인 중...
+      </div>
+
+      <hr style="border:none;border-top:1px solid var(--border);margin:24px 0">
+
+      <h2 style="margin-bottom:16px">🧪 연결 테스트</h2>
+      <button onclick="testApiKey()"
+        style="padding:10px 20px;background:var(--green);color:#fff;border:none;
+               border-radius:8px;font-size:13px;font-weight:600;cursor:pointer">
+        ▶ API 연결 테스트
+      </button>
+      <div id="test-result" style="margin-top:12px;font-size:13px;min-height:20px"></div>
+    </div>
+
+    <div class="section-card">
+      <h2>📋 API 키 발급 안내</h2>
+      <ol style="font-size:13px;line-height:2;color:var(--text);padding-left:20px">
+        <li><a href="https://console.groq.com/keys" target="_blank" style="color:var(--blue)">console.groq.com/keys</a> 접속</li>
+        <li>회원가입(무료) 후 <strong>"Create API Key"</strong> 클릭</li>
+        <li>생성된 키(<code>gsk_...</code>) 복사</li>
+        <li>위 입력창에 붙여넣기 후 <strong>"저장"</strong></li>
+        <li>무료 플랜으로 llama-3.3-70b 모델 사용 가능</li>
+      </ol>
+    </div>
+  </div><!-- /tab-settings -->
+
+</div>
+
+<footer>
+  <p>자동 수집된 환율 데이터입니다. 실제 거래 환율과 다를 수 있습니다.</p>
+  <p style="margin-top:4px">투자 판단의 최종 책임은 이용자에게 있습니다. |
+    <a href="https://www.koreaexim.go.kr" target="_blank">한국수출입은행</a> 공식 API 연동은 Python 백엔드(main.py) 사용
+  </p>
+</footer>
+
+<script>
+// ── Constants ──────────────────────────────────────────────────────────
+const API_URL = null; // Flask 백엔드 /api/rates 사용
+const STORAGE_KEY = 'fx_history_v2';
+const MAX_HISTORY = 50;
+const CURRENCIES = ['USD', 'EUR'];
+const FLAGS = { USD: '🇺🇸', EUR: '🇪🇺' };
+
+let currentRates = {};
+let history = [];
+let chartMode = 'all';
+let threshold = 0.5;
+let refreshInterval = null;
+
+// ── Init ───────────────────────────────────────────────────────────────
+window.addEventListener('DOMContentLoaded', () => {
+  history = loadHistory();
+  renderTable();
+  renderChart();
+  loadHistoryChart();   // 3개월 히스토리
+  fetchRates().then(() => {
+    document.getElementById('loading-overlay').style.display = 'none';
+    scheduleRefresh();
+  });
+});
+
+// ── Fetch ──────────────────────────────────────────────────────────────
+let prevDxy = null;
+
+async function fetchDxy() {
+  try {
+    // CORS 우회: Flask 백엔드 경유
+    const res = await fetch(API_BASE + '/dxy');
+    if (!res.ok) throw new Error(res.status);
+    return await res.json();
+  } catch (e) {
+    console.warn('DXY 수집 실패:', e);
+    return null;
+  }
+}
+
+function updateDxyCard(dxy) {
+  if (!dxy || !dxy.current) return;
+
+  const val  = dxy.current;
+  // 기준: Yahoo Finance previousClose (전일 종가)
+  const base = dxy.prev ?? val;
+  const chgPct = base ? (val - base) / base * 100 : 0;
+
+  document.getElementById('val-DXY').textContent = val.toFixed(1);
+
+  const chgEl = document.getElementById('chg-DXY');
+  const amtEl = document.getElementById('amt-DXY');
+  const dir = chgPct > 0.001 ? 'up' : chgPct < -0.001 ? 'down' : 'flat';
+  chgEl.textContent = (chgPct >= 0 ? '+' : '') + chgPct.toFixed(3) + '%';
+  chgEl.className = `rate-change ${dir}`;
+
+  if (amtEl && base) {
+    const diff = val - base;
+    amtEl.textContent = (diff >= 0 ? '+' : '') + diff.toFixed(3);
+    amtEl.className = `rate-amount ${dir}`;
+  }
+
+  // DXY 상승 = 달러 강세 → 카드 상단 색상
+  document.getElementById('card-DXY').className = `rate-card ${dir}`;
+  document.getElementById('card-DXY').style.borderTopColor = '#7c3aed';
+
+  document.getElementById('prev-DXY').textContent =
+    base ? `기준: ${base.toFixed(1)}` : '';
+
+  if (dxy.high) document.getElementById('high-DXY').textContent = dxy.high.toFixed(1);
+  if (dxy.low)  document.getElementById('low-DXY').textContent  = dxy.low.toFixed(1);
+
+  prevDxy = val;
+}
+
+async function fetchRates() {
+  try {
+    document.getElementById('status-dot').style.background = '#fbbf24';
+
+    // 환율 + DXY 병렬 수집 (Yahoo Finance, Flask 백엔드 경유)
+    const [fxData, dxy] = await Promise.all([
+      apiFetch('/rates'),
+      fetchDxy()
+    ]);
+
+    if (fxData.error) throw new Error(fxData.error);
+
+    const newRates = {
+      USD: fxData.USD?.current,
+      EUR: fxData.EUR?.current,
+    };
+    // 당일 기준환율 = Yahoo Finance previousClose (전일 종가)
+    const baseRates = {
+      USD: fxData.USD?.prev,
+      EUR: fxData.EUR?.prev,
+    };
+
+    // 당일 고가·저가 Yahoo Finance 값으로 직접 업데이트
+    for (const c of CURRENCIES) {
+      const d = fxData[c];
+      if (!d) continue;
+      if (d.high) document.getElementById(`high-${c}`).textContent =
+        d.high.toLocaleString('ko-KR', {minimumFractionDigits:1, maximumFractionDigits:1});
+      if (d.low) document.getElementById(`low-${c}`).textContent =
+        d.low.toLocaleString('ko-KR', {minimumFractionDigits:1, maximumFractionDigits:1});
+    }
+
+    // 변동률 계산 기준: 당일 기준환율(전일 종가) 대비
+    const changes = computeChanges(baseRates, newRates);
+
+    // Save to history
+    const record = {
+      ts: new Date().toISOString(),
+      rates: newRates,
+      changes
+    };
+    history.push(record);
+    if (history.length > MAX_HISTORY) history = history.slice(-MAX_HISTORY);
+    saveHistory(history);
+
+    currentRates = newRates;
+    updateCards(newRates, changes, baseRates);
+    updateDxyCard(dxy);
+    updateStats();
+    renderTable();
+    renderChart();
+    checkAlerts(changes);
+
+    document.getElementById('last-updated').textContent =
+      '갱신: ' + new Date().toLocaleTimeString('ko-KR');
+    document.getElementById('status-dot').style.background = '#4ade80';
+  } catch (e) {
+    console.error(e);
+    document.getElementById('status-dot').style.background = '#f87171';
+    document.getElementById('last-updated').textContent = '오류 — 재시도 중';
+  }
+}
+
+function computeChanges(prev, curr) {
+  const ch = {};
+  for (const c of CURRENCIES) {
+    ch[c] = (prev && prev[c]) ? (curr[c] - prev[c]) / prev[c] * 100 : 0;
+  }
+  return ch;
+}
+
+// ── Cards ──────────────────────────────────────────────────────────────
+function updateCards(rates, changes, baseRates) {
+  for (const c of CURRENCIES) {
+    const val  = rates[c];
+    const base = baseRates?.[c];
+    const chg  = changes[c];
+    document.getElementById(`val-${c}`).textContent = val.toLocaleString('ko-KR', {minimumFractionDigits:1, maximumFractionDigits:1});
+
+    const chgEl = document.getElementById(`chg-${c}`);
+    const amtEl = document.getElementById(`amt-${c}`);
+    const dir   = chg > 0.001 ? 'up' : chg < -0.001 ? 'down' : 'flat';
+
+    chgEl.textContent = (chg >= 0 ? '+' : '') + chg.toFixed(3) + '%';
+    chgEl.className = `rate-change ${dir}`;
+
+    // 변동금액 = 현재가 - 당일 기준환율(전일 종가)
+    if (base && amtEl) {
+      const diff = val - base;
+      amtEl.textContent = (diff >= 0 ? '+' : '') + diff.toLocaleString('ko-KR', {minimumFractionDigits:1, maximumFractionDigits:1}) + '원';
+      amtEl.className = `rate-amount ${dir}`;
+    }
+
+    // 이전값 표시: 당일 기준환율
+    if (base) {
+      document.getElementById(`prev-${c}`).textContent =
+        `기준: ${base.toLocaleString('ko-KR', {minimumFractionDigits:1, maximumFractionDigits:1})}원`;
+    }
+
+    document.getElementById(`card-${c}`).className = `rate-card ${dir}`;
+
+    // High / Low for today from history
+    const today = new Date().toISOString().slice(0, 10);
+    const todayVals = history.filter(h => h.ts.startsWith(today)).map(h => h.rates[c]).filter(Boolean);
+    if (todayVals.length) {
+      document.getElementById(`high-${c}`).textContent = Math.max(...todayVals).toLocaleString('ko-KR', {minimumFractionDigits:1, maximumFractionDigits:1});
+      document.getElementById(`low-${c}`).textContent  = Math.min(...todayVals).toLocaleString('ko-KR', {minimumFractionDigits:1, maximumFractionDigits:1});
+    }
+
+  }
+}
+
+// ── Stats ──────────────────────────────────────────────────────────────
+function updateStats() {
+  const today = new Date().toISOString().slice(0, 10);
+  const pairs = { USD: 'stat-usd-range', EUR: 'stat-eur-range' };
+  for (const [c, id] of Object.entries(pairs)) {
+    const vals = history.filter(h => h.ts.startsWith(today)).map(h => h.rates[c]).filter(Boolean);
+    if (vals.length >= 2) {
+      const range = (Math.max(...vals) - Math.min(...vals)).toFixed(2);
+      document.getElementById(id).textContent = range;
+    }
+  }
+}
+
+// ── Threshold & Alert ──────────────────────────────────────────────────
+function updateThreshold(val) {
+  threshold = parseFloat(val);
+  document.getElementById('threshold-val').textContent = `±${threshold.toFixed(1)}%`;
+}
+
+function checkAlerts(changes) {
+  const alerts = [];
+  for (const c of CURRENCIES) {
+    if (Math.abs(changes[c]) >= threshold) {
+      const dir = changes[c] > 0 ? '▲ 상승' : '▼ 하락';
+      alerts.push(`${c}/KRW ${dir} ${Math.abs(changes[c]).toFixed(3)}%`);
+    }
+  }
+  const banner = document.getElementById('alert-banner');
+  const alertList = document.getElementById('alert-list');
+  if (alerts.length) {
+    document.getElementById('alert-text').innerHTML =
+      `<strong>임계값 초과 감지!</strong> &nbsp;${alerts.join(' &nbsp;|&nbsp; ')}`;
+    banner.classList.add('show');
+    alertList.textContent = alerts.join(' | ');
+  } else {
+    banner.classList.remove('show');
+    alertList.textContent = '';
+  }
+}
+
+// ── Chart ─────────────────────────────────────────────────────────────
+const COLORS = { USD: '#1d4ed8', EUR: '#16a34a' };
+
+function setChartMode(mode, el) {
+  chartMode = mode;
+  document.querySelectorAll('.chart-tab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  renderChart();
+}
+
+function renderChart() {
+  if (!history.length) return;
+  const xs = history.map(h => h.ts);
+  const traces = [];
+  const targets = chartMode === 'all' ? CURRENCIES : [chartMode];
+
+  for (const c of targets) {
+    traces.push({
+      x: xs,
+      y: history.map(h => h.rates[c] || null),
+      name: `${c}/KRW`,
+      type: 'scatter',
+      mode: 'lines+markers',
+      line: { color: COLORS[c], width: 2 },
+      marker: { size: 4 },
+      hovertemplate: '%{x|%H:%M:%S}<br>%{y:,.2f}원<extra>' + c + '/KRW</extra>'
+    });
+  }
+
+  const layout = {
+    margin: { l: 56, r: 16, t: 8, b: 40 },
+    height: 300,
+    plot_bgcolor: '#fff',
+    paper_bgcolor: '#fff',
+    legend: { orientation: 'h', yanchor: 'bottom', y: 1.02, xanchor: 'right', x: 1 },
+    xaxis: {
+      showgrid: true, gridcolor: '#f1f5f9',
+      type: 'date',
+      tickformat: '%H:%M'
+    },
+    yaxis: {
+      showgrid: true, gridcolor: '#f1f5f9',
+      tickformat: ',.0f'
+    },
+    font: { family: "'Noto Sans KR', sans-serif", size: 11 }
+  };
+
+  Plotly.newPlot('chart', traces, layout, { responsive: true, displayModeBar: false });
+}
+
+// ── History Table ──────────────────────────────────────────────────────
+function renderTable() {
+  const tbody = document.getElementById('history-tbody');
+  const rows = [...history].reverse().slice(0, MAX_HISTORY);
+  tbody.innerHTML = rows.map(r => {
+    const time = new Date(r.ts).toLocaleTimeString('ko-KR');
+    return `<tr>
+      <td>${time}</td>
+      <td>${r.rates.USD ? r.rates.USD.toLocaleString('ko-KR',{minimumFractionDigits:1,maximumFractionDigits:1}) : '—'}</td>
+      <td class="${chgClass(r.changes.USD)}">${fmtChg(r.changes.USD)}</td>
+      <td>${r.rates.EUR ? r.rates.EUR.toLocaleString('ko-KR',{minimumFractionDigits:1,maximumFractionDigits:1}) : '—'}</td>
+      <td class="${chgClass(r.changes.EUR)}">${fmtChg(r.changes.EUR)}</td>
+    </tr>`;
+  }).join('');
+}
+
+function chgClass(v) { return v > 0.001 ? 'td-up' : v < -0.001 ? 'td-down' : ''; }
+function fmtChg(v) { return v !== undefined ? (v >= 0 ? '+' : '') + v.toFixed(3) + '%' : '—'; }
+
+// ── Persistence ────────────────────────────────────────────────────────
+function saveHistory(h) {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(h)); } catch {}
+}
+function loadHistory() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch { return []; }
+}
+
+// ── Auto Refresh ───────────────────────────────────────────────────────
+function scheduleRefresh() {
+  if (refreshInterval) clearInterval(refreshInterval);
+  refreshInterval = setInterval(fetchRates, 60_000);
+}
+
+function refresh() {
+  fetchRates();
+}
+
+// ── 3개월 히스토리 차트 ────────────────────────────────────────────────
+let historyData = {};   // { USD: [{date, rate}], EUR: [{date, rate}] }
+let historyMode = 'all';
+
+function getHistoryDateRange() {
+  const now = new Date();
+  // 3개월 전 해당 월 1일
+  const startDate = new Date(now.getFullYear(), now.getMonth() - 3, 1);
+  const fmt = d => d.toISOString().slice(0, 10);
+  return { start: fmt(startDate), end: fmt(now) };
+}
+
+async function loadHistoryChart() {
+  document.getElementById('history-range-label').textContent = '로딩 중...';
+  try {
+    const data = await apiFetch('/history');
+    if (data.error) throw new Error(data.error);
+
+    historyData = { USD: data.USD || [], EUR: data.EUR || [] };
+    document.getElementById('history-range-label').textContent =
+      `${data.start} ~ ${data.end}  (${data.USD?.length || 0}일)`;
+    renderHistoryChart();
+  } catch (e) {
+    console.error('히스토리 차트 로딩 실패:', e);
+    document.getElementById('history-range-label').textContent = '로딩 실패 — 서버 확인 필요';
+  }
+}
+
+function setHistoryMode(mode, el) {
+  historyMode = mode;
+  document.querySelectorAll('#history-chart').forEach(() => {});
+  el.closest('.section-card').querySelectorAll('.chart-tab')
+    .forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  renderHistoryChart();
+}
+
+function renderHistoryChart() {
+  const targets = historyMode === 'all' ? ['USD', 'EUR'] : [historyMode];
+  const traces = targets.map(c => ({
+    x: historyData[c]?.map(d => d.date) || [],
+    y: historyData[c]?.map(d => d.rate) || [],
+    name: `${c}/KRW`,
+    type: 'scatter',
+    mode: 'lines',
+    line: { color: COLORS[c], width: 2 },
+    hovertemplate: '%{x}<br>%{y:,.1f}원<extra>' + c + '/KRW</extra>'
+  }));
+
+  const layout = {
+    margin: { l: 60, r: 16, t: 8, b: 40 },
+    height: 300,
+    plot_bgcolor: '#fff',
+    paper_bgcolor: '#fff',
+    legend: { orientation: 'h', yanchor: 'bottom', y: 1.02, xanchor: 'right', x: 1 },
+    xaxis: { showgrid: true, gridcolor: '#f1f5f9', type: 'date', tickformat: '%m/%d' },
+    yaxis: { showgrid: true, gridcolor: '#f1f5f9', tickformat: ',.0f' },
+    font: { family: "'Noto Sans KR', sans-serif", size: 11 },
+    shapes: [{
+      type: 'line',
+      x0: new Date().toISOString().slice(0, 10),
+      x1: new Date().toISOString().slice(0, 10),
+      y0: 0, y1: 1, yref: 'paper',
+      line: { color: '#f59e0b', width: 1.5, dash: 'dot' }
+    }]
+  };
+
+  Plotly.newPlot('history-chart', traces, layout, { responsive: true, displayModeBar: false });
+  renderHistoryStats();
+}
+
+function renderHistoryStats() {
+  const statsEl = document.getElementById('history-stats');
+  if (!historyData.USD?.length && !historyData.EUR?.length) {
+    statsEl.style.display = 'none';
+    return;
+  }
+  statsEl.style.display = 'block';
+
+  const fmtRate = v => v?.toLocaleString('ko-KR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + '원';
+  const fmtDate = d => {
+    const [y, m, day] = d.split('-');
+    return `${y}.${m}.${day}`;
+  };
+
+  for (const cur of ['USD', 'EUR']) {
+    const series = historyData[cur];
+    if (!series?.length) continue;
+
+    const prefix = cur.toLowerCase();
+    const maxItem = series.reduce((a, b) => b.rate > a.rate ? b : a);
+    const minItem = series.reduce((a, b) => b.rate < a.rate ? b : a);
+    const avg     = series.reduce((s, b) => s + b.rate, 0) / series.length;
+
+    document.getElementById(`${prefix}-high-val`).textContent  = fmtRate(maxItem.rate);
+    document.getElementById(`${prefix}-high-date`).textContent = fmtDate(maxItem.date);
+    document.getElementById(`${prefix}-low-val`).textContent   = fmtRate(minItem.rate);
+    document.getElementById(`${prefix}-low-date`).textContent  = fmtDate(minItem.date);
+    document.getElementById(`${prefix}-avg-val`).textContent   = fmtRate(avg);
+  }
+}
+
+// ── Tab Switching ──────────────────────────────────────────────────────
+function switchTab(name, el) {
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.page-tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  el.classList.add('active');
+
+  if (name === 'news') loadSummaries();
+  if (name === 'articles') loadArticles();
+  if (name === 'settings') loadKeyStatus();
+}
+
+// ── Flask API helpers ──────────────────────────────────────────────────
+const API_BASE = 'http://localhost:5000/api';
+
+async function apiFetch(path) {
+  const res = await fetch(API_BASE + path);
+  if (!res.ok) throw new Error(res.status);
+  return res.json();
+}
+
+// ── News Summaries ─────────────────────────────────────────────────────
+async function loadSummaries() {
+  const container = document.getElementById('summaries-container');
+  try {
+    const data = await apiFetch('/summaries?limit=24');
+    if (!data.length) {
+      container.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-icon">📭</div>
+          <p>아직 수집된 요약이 없습니다.</p>
+          <p style="margin-top:8px">
+            <code>python news_scheduler.py</code> 를 실행하거나
+            위 <strong>"지금 수집"</strong> 버튼을 눌러주세요.
+          </p>
+        </div>`;
+      return;
+    }
+
+    // marked 옵션 설정
+    marked.setOptions({ breaks: true, gfm: true });
+
+    container.innerHTML = data.map((s, i) => {
+      const id = 'sum-' + i;
+      const time = s.created_at ? new Date(s.created_at).toLocaleString('ko-KR') : s.hour_label;
+      const mdHtml = marked.parse(s.summary || '');
+      return `
+        <div class="news-summary-card">
+          <div class="news-summary-header" onclick="toggleSummary('${id}', this)">
+            <div class="hour-badge">
+              📰 ${s.hour_label} 요약
+              <span class="article-count">${time}</span>
+            </div>
+            <span class="toggle-icon">▼</span>
+          </div>
+          <div class="news-summary-body" id="${id}">
+            <div class="md-body">${mdHtml}</div>
+          </div>
+        </div>`;
+    }).join('');
+
+    // 최신 요약 자동 펼치기
+    const first = document.querySelector('.news-summary-header');
+    if (first) toggleSummary('sum-0', first);
+
+  } catch (e) {
+    container.innerHTML = `
+      <div class="empty-state">
+        <div class="empty-icon">🔌</div>
+        <p>서버에 연결할 수 없습니다.</p>
+        <p style="margin-top:8px"><code>python app.py</code> 를 실행한 뒤 새로고침해주세요.</p>
+        <p style="margin-top:8px;font-size:12px;color:#94a3b8">
+          서버 없이도 <code>python news_scheduler.py</code> 로 직접 수집·요약 가능합니다.
+        </p>
+      </div>`;
+  }
+}
+
+function toggleSummary(id, headerEl) {
+  const body = document.getElementById(id);
+  const isOpen = body.classList.contains('open');
+  body.classList.toggle('open', !isOpen);
+  headerEl.classList.toggle('open', !isOpen);
+}
+
+function escapeHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// ── Articles List ──────────────────────────────────────────────────────
+async function loadArticles() {
+  const container = document.getElementById('articles-container');
+  try {
+    const data = await apiFetch('/articles?limit=50');
+    if (!data.length) {
+      container.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-icon">📭</div>
+          <p>수집된 기사가 없습니다. <code>python news_scheduler.py</code> 를 실행해주세요.</p>
+        </div>`;
+      return;
+    }
+
+    document.getElementById('articles-count-label').textContent = `총 ${data.length}건`;
+    container.innerHTML = `
+      <ul class="news-articles-list">
+        ${data.map(a => {
+          const t = a.collected_at ? new Date(a.collected_at).toLocaleTimeString('ko-KR') : '';
+          return `<li>
+            <span class="feed-tag">${a.source_feed || '연합뉴스'}</span>
+            <a href="${a.link}" target="_blank">${escapeHtml(a.title)}</a>
+            <span class="pub-time">${t}</span>
+          </li>`;
+        }).join('')}
+      </ul>`;
+  } catch (e) {
+    container.innerHTML = `
+      <div class="empty-state">
+        <div class="empty-icon">🔌</div>
+        <p>서버에 연결할 수 없습니다. <code>python app.py</code> 를 실행해주세요.</p>
+      </div>`;
+  }
+}
+
+// ── Manual Collect Trigger ─────────────────────────────────────────────
+// ── Settings / API Key ─────────────────────────────────────────────────
+function toggleKeyVisibility() {
+  const inp = document.getElementById('apikey-input');
+  const btn = document.getElementById('apikey-show-btn');
+  if (inp.type === 'password') { inp.type = 'text'; btn.textContent = '🙈'; }
+  else { inp.type = 'password'; btn.textContent = '👁'; }
+}
+
+async function saveApiKey() {
+  const key = document.getElementById('apikey-input').value.trim();
+  const status = document.getElementById('apikey-status');
+
+  if (!key) {
+    status.innerHTML = '<span style="color:var(--red)">⚠️ 키를 입력해주세요.</span>';
+    return;
+  }
+  if (!key.startsWith('gsk_')) {
+    status.innerHTML = '<span style="color:var(--red)">⚠️ 올바른 Groq 키 형식이 아닙니다 (gsk_... 로 시작해야 합니다).</span>';
+    return;
+  }
+
+  status.innerHTML = '<span style="color:var(--gray)">저장 중...</span>';
+  try {
+    const res = await fetch(API_BASE + '/settings/apikey', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ groq_api_key: key })
+    });
+    const data = await res.json();
+    if (data.status === 'ok') {
+      status.innerHTML = '<span style="color:var(--green)">✅ 저장 완료! .env 파일에 기록되었습니다.</span>';
+      document.getElementById('apikey-input').value = '';
+      loadKeyStatus();
+    } else {
+      status.innerHTML = `<span style="color:var(--red)">❌ 저장 실패: ${data.message}</span>`;
+    }
+  } catch {
+    status.innerHTML = '<span style="color:var(--red)">❌ 서버 연결 실패. <code>python app.py</code> 를 실행해주세요.</span>';
+  }
+}
+
+async function loadKeyStatus() {
+  const el = document.getElementById('apikey-current');
+  try {
+    const data = await apiFetch('/settings/apikey');
+    if (data.has_key) {
+      el.innerHTML = `<span style="color:var(--green);font-weight:600">✅ 키 설정됨</span>
+        &nbsp;&nbsp;<code style="background:var(--gray-light);padding:2px 8px;border-radius:4px">
+        ${data.masked}</code>`;
+    } else {
+      el.innerHTML = '<span style="color:var(--red)">❌ 키가 설정되지 않았습니다.</span>';
+    }
+  } catch {
+    el.innerHTML = '<span style="color:var(--gray)">서버 미연결 — <code>python app.py</code> 실행 필요</span>';
+  }
+}
+
+async function testApiKey() {
+  const result = document.getElementById('test-result');
+  result.innerHTML = '<span style="color:var(--gray)">테스트 중...</span>';
+  try {
+    const data = await apiFetch('/settings/test');
+    if (data.status === 'ok') {
+      result.innerHTML = `<span style="color:var(--green)">✅ 연결 성공! 모델: ${data.model} | 응답: "${data.reply}"</span>`;
+    } else {
+      result.innerHTML = `<span style="color:var(--red)">❌ 실패: ${data.message}</span>`;
+    }
+  } catch {
+    result.innerHTML = '<span style="color:var(--red)">❌ 서버 연결 실패. <code>python app.py</code> 를 실행해주세요.</span>';
+  }
+}
+
+async function triggerCollect() {
+  const btn = document.getElementById('collect-btn');
+  btn.disabled = true;
+  btn.textContent = '수집 중...';
+  try {
+    const res = await fetch(API_BASE + '/collect', { method: 'POST' });
+    if (!res.ok) throw new Error();
+    btn.textContent = '✓ 완료';
+    setTimeout(() => {
+      btn.disabled = false;
+      btn.textContent = '↻ 지금 수집';
+      loadSummaries();
+    }, 1500);
+  } catch {
+    btn.textContent = '연결 오류';
+    setTimeout(() => { btn.disabled = false; btn.textContent = '↻ 지금 수집'; }, 2000);
+  }
+}
+</script>
+</body>
+</html>

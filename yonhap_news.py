@@ -288,8 +288,9 @@ def run_news_pipeline():
     con.close()
 
     new_articles = [a for a in articles if a["article_id"] not in existing_ids]
-    _safe_print(f"[INFO] 신규 기사 {len(new_articles)}건 본문 수집 중...")
+    existing_articles = [a for a in articles if a["article_id"] in existing_ids]
 
+    _safe_print(f"[INFO] 신규 기사 {len(new_articles)}건 본문 수집 중...")
     for a in new_articles:
         if a["link"]:
             a["body"] = scrape_article_body(a["link"])
@@ -298,7 +299,29 @@ def run_news_pipeline():
     saved = save_articles(new_articles)
     _safe_print(f"[INFO] {len(saved)}건 저장 완료")
 
+    # 기존 기사도 collected_at을 현재 시각으로 갱신하여 현재 시간대 조회에 포함
+    if existing_articles:
+        con = sqlite3.connect(DB_PATH)
+        now_iso = datetime.now().isoformat()
+        for a in existing_articles:
+            con.execute(
+                "UPDATE yonhap_articles SET collected_at=? WHERE article_id=?",
+                (now_iso, a["article_id"])
+            )
+        con.commit()
+        con.close()
+        _safe_print(f"[INFO] 기존 기사 {len(existing_articles)}건 타임스탬프 갱신")
+
     hour_articles = get_articles_for_hour(hour_label)
+    # 현재 시간대 기사가 없으면 RSS에서 가져온 전체 목록으로 fallback
+    if not hour_articles:
+        hour_articles = [
+            {"article_id": a["article_id"], "title": a["title"],
+             "link": a["link"], "published": a.get("published", ""),
+             "body": a.get("body", a.get("summary", ""))}
+            for a in articles
+        ]
+        _safe_print(f"[INFO] fallback: RSS 수집 기사 {len(hour_articles)}건으로 요약")
     _safe_print(f"[INFO] {len(hour_articles)}건으로 요약 생성 중...")
 
     summary = summarize_with_claude(hour_articles)
