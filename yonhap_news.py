@@ -253,8 +253,7 @@ def summarize_with_claude(articles: list) -> str:
         )
         return response.choices[0].message.content
     except Exception as e:
-        import traceback
-        return f"[AI 요약 오류] {e}\n\n{traceback.format_exc()}"
+        return f"[AI 요약 오류] {e}"
 
 
 def save_summary(hour_label: str, article_ids: list, summary: str):
